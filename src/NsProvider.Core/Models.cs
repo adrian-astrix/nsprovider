@@ -29,6 +29,11 @@ public sealed class GameServer
     public bool Announce { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    // recursos por servidor (null = usa o default global do motor via env)
+    public int? MemoryMb { get; set; }
+    public double? CpuCores { get; set; }
+    public int? DiskMb { get; set; }
 }
 
 public sealed class ServerProcessStatus

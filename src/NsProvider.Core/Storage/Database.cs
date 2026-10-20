@@ -91,5 +91,11 @@ public sealed class Database
         // migrações incrementais
         try { conn.Execute("ALTER TABLE users ADD COLUMN uid INTEGER"); }
         catch (SqliteException) { /* coluna já existe */ }
+        try { conn.Execute("ALTER TABLE servers ADD COLUMN memory_mb INTEGER"); }
+        catch (SqliteException) { }
+        try { conn.Execute("ALTER TABLE servers ADD COLUMN cpu_cores REAL"); }
+        catch (SqliteException) { }
+        try { conn.Execute("ALTER TABLE servers ADD COLUMN disk_mb INTEGER"); }
+        catch (SqliteException) { }
     }
 }

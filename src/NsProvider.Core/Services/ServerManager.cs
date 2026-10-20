@@ -26,13 +26,15 @@ public sealed class ServerManager(
     public ProcessManager Processes => _processes;
 
     public GameServer Create(Guid userId, ServerType type, int maxPlayers,
-        string? name, string? hostname, string? gamemode, bool announce, Guid? serverId = null)
+        string? name, string? hostname, string? gamemode, bool announce, Guid? serverId = null,
+        int? memoryMb = null, double? cpuCores = null, int? diskMb = null)
     {
         var user = _users.GetById(userId)
             ?? throw new InvalidOperationException("Usuário não encontrado.");
 
         if (maxPlayers is < 1 or > 1000)
             throw new InvalidOperationException("maxPlayers deve estar entre 1 e 1000.");
+        ValidateResources(memoryMb, cpuCores, diskMb);
 
         if (!_templates.IsInstalled(type))
             throw new InvalidOperationException(
@@ -65,6 +67,9 @@ public sealed class ServerManager(
             RconPassword = GenerateRandomPassword(),
             Gamemode = effectiveGamemode,
             Announce = announce,
+            MemoryMb = memoryMb,
+            CpuCores = cpuCores,
+            DiskMb = diskMb,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -79,7 +84,8 @@ public sealed class ServerManager(
     }
 
     public GameServer Update(Guid serverId, int? maxPlayers, string? hostname, string? name,
-        string? rconPassword, string? gamemode, bool? announce)
+        string? rconPassword, string? gamemode, bool? announce,
+        int? memoryMb = null, double? cpuCores = null, int? diskMb = null)
     {
         var server = _servers.GetById(serverId)
             ?? throw new InvalidOperationException("Servidor não encontrado.");
@@ -94,6 +100,27 @@ public sealed class ServerManager(
         if (name is not null && name.Trim().Length > 0) server.Name = name.Trim();
         if (rconPassword is not null && rconPassword.Length > 0) server.RconPassword = rconPassword;
         if (announce is { } ann) server.Announce = ann;
+
+        // recursos (cpu, memória, disco) — aplica ao vivo se estiver rodando
+        bool recursosMudou = false;
+        if (memoryMb is { } mem && mem != server.MemoryMb)
+        {
+            ValidateResources(mem, null, null);
+            server.MemoryMb = mem;
+            recursosMudou = true;
+        }
+        if (cpuCores is { } cpu && cpu != server.CpuCores)
+        {
+            ValidateResources(null, cpu, null);
+            server.CpuCores = cpu;
+            recursosMudou = true;
+        }
+        if (diskMb is { } disk && disk != server.DiskMb)
+        {
+            ValidateResources(null, null, disk);
+            server.DiskMb = disk;
+            recursosMudou = true;
+        }
 
         if (gamemode is not null)
         {
@@ -110,7 +137,29 @@ public sealed class ServerManager(
         // config reescrita pelo motor (root) → devolve ao dono
         var uid = _users.EnsureUid(server.UserId);
         ChownRecursive(AppPaths.ServerDir(server.UserId, serverId), uid, uid);
+
+        // recursos alterados com servidor ligado → cgroup ao vivo, sem restart
+        if (recursosMudou && _processes.GetStatus(serverId) is { Running: true } status && status.Pid is { } pid)
+        {
+            var cgroups = new CgroupManager();
+            cgroups.Attach(serverId, pid,
+                server.MemoryMb ?? CgroupManager.MemoryMb,
+                server.CpuCores ?? CgroupManager.CpuCores,
+                CgroupManager.PidsMax);
+            _processes.SendEventLine(serverId,
+                $"[motor] recursos atualizados: mem {server.MemoryMb ?? CgroupManager.MemoryMb}MB · cpu {server.CpuCores ?? CgroupManager.CpuCores} core(s) · disco {server.DiskMb ?? DiskQuotaService.DiskMb}MB");
+        }
         return server;
+    }
+
+    private static void ValidateResources(int? memoryMb, double? cpuCores, int? diskMb)
+    {
+        if (memoryMb is { } mem && mem is < 64 or > 262_144)
+            throw new InvalidOperationException("memoryMb deve estar entre 64 e 262144 (256GB).");
+        if (cpuCores is { } cpu && cpu is <= 0 or > 256)
+            throw new InvalidOperationException("cpuCores deve estar entre 0.1 e 256.");
+        if (diskMb is { } disk && disk is < 50 or > 10_485_760)
+            throw new InvalidOperationException("diskMb deve estar entre 50 e 10485760 (10TB).");
     }
 
     public void Delete(Guid serverId)
@@ -141,7 +190,9 @@ public sealed class ServerManager(
         ChownRecursive(serverDir, uid, uid); // cobre pastas criadas antes da migração de UID
         _processes.Start(serverId, bin, serverDir,
             uid, uid,
-            CgroupManager.MemoryMb, CgroupManager.CpuCores, CgroupManager.PidsMax);
+            server.MemoryMb ?? CgroupManager.MemoryMb,
+            server.CpuCores ?? CgroupManager.CpuCores,
+            CgroupManager.PidsMax);
         return server;
     }
 

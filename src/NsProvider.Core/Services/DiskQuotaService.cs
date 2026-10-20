@@ -39,10 +39,11 @@ public sealed class DiskQuotaService(
                     var bytes = WalkAndFix(dir, users.GetUid(server.UserId));
                     _usageBytes[server.Id] = bytes;
 
-                    if (bytes > (long)DiskMb * 1024 * 1024 && manager.Processes.IsRunning(server.Id))
+                    var quotaMb = server.DiskMb ?? DiskMb; // quota do servidor ou global
+                    if (bytes > (long)quotaMb * 1024 * 1024 && manager.Processes.IsRunning(server.Id))
                     {
                         manager.Processes.SendEventLine(server.Id,
-                            $"[motor] QUOTA DE DISCO EXCEDIDA ({bytes / 1024 / 1024}MB > {DiskMb}MB) — servidor suspenso");
+                            $"[motor] QUOTA DE DISCO EXCEDIDA ({bytes / 1024 / 1024}MB > {quotaMb}MB) — servidor suspenso");
                         manager.Stop(server.Id);
                         Console.WriteLine($"[motor] {server.Id}: quota de disco excedida — servidor suspenso");
                     }
