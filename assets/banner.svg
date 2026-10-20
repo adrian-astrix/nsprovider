@@ -43,7 +43,7 @@
   <text x="200" y="140" font-family="'Segoe UI', Arial, sans-serif" font-size="64" font-weight="700" fill="#E0E1DD">NsProvider</text>
 
   <!-- subtítulo -->
-  <text x="202" y="172" font-family="Consolas, 'Courier New', monospace" font-size="17" letter-spacing="2" fill="#778DA9">MOTOR DE HOSTING · SA-MP & OPEN.MP · C# / .NET 8</text>
+  <text x="202" y="172" font-family="Consolas, 'Courier New', monospace" font-size="17" letter-spacing="2" fill="#778DA9">MOTOR DE HOSTING · SA-MP &amp; OPEN.MP · C# / .NET 8</text>
 
   <!-- linha divisória -->
   <rect x="200" y="196" width="620" height="2" fill="url(#line)"/>

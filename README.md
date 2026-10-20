@@ -1,9 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/banner.svg">
-  <img src="assets/banner.svg" alt="NsProvider — motor de hosting SA-MP / open.mp" width="860">
-</picture>
+<img src="assets/banner.svg" alt="NsProvider — motor de hosting SA-MP / open.mp" width="860">
 
 ### Motor de hosting de servidores SA-MP / open.mp — escrito em C# / .NET 8
 
