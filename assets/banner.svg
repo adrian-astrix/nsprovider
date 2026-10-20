@@ -1,0 +1,71 @@
+<svg width="1100" height="300" viewBox="0 0 1100 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NsProvider">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0D1B2A"/>
+      <stop offset="50%" stop-color="#1B263B"/>
+      <stop offset="100%" stop-color="#0D1B2A"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#415A77" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#778DA9"/>
+      <stop offset="100%" stop-color="#415A77" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="1092" height="292" rx="18" fill="url(#bg)" stroke="#415A77" stroke-width="2"/>
+
+  <!-- textura: linhas horizontais sutis -->
+  <g stroke="#1B263B" stroke-width="1" opacity="0.6">
+    <line x1="20" y1="70"  x2="1080" y2="70"/>
+    <line x1="20" y1="120" x2="1080" y2="120"/>
+    <line x1="20" y1="170" x2="1080" y2="170"/>
+    <line x1="20" y1="220" x2="1080" y2="220"/>
+  </g>
+  <g stroke="#22304A" stroke-width="1" opacity="0.8">
+    <line x1="20" y1="45"  x2="1080" y2="45"/>
+    <line x1="20" y1="255" x2="1080" y2="255"/>
+  </g>
+
+  <!-- marcador de servidor -->
+  <g transform="translate(70,96)" fill="none" stroke="#778DA9" stroke-width="3">
+    <rect x="0" y="0" width="88" height="108" rx="10"/>
+    <line x1="0" y1="36" x2="88" y2="36"/>
+    <line x1="0" y1="72" x2="88" y2="72"/>
+    <circle cx="16" cy="18" r="4" fill="#778DA9" stroke="none"/>
+    <circle cx="16" cy="54" r="4" fill="#778DA9" stroke="none"/>
+    <circle cx="16" cy="90" r="4" fill="#778DA9" stroke="none"/>
+    <line x1="34" y1="18" x2="72" y2="18"/>
+    <line x1="34" y1="54" x2="72" y2="54"/>
+    <line x1="34" y1="90" x2="72" y2="90"/>
+  </g>
+
+  <!-- título -->
+  <text x="200" y="140" font-family="'Segoe UI', Arial, sans-serif" font-size="64" font-weight="700" fill="#E0E1DD">NsProvider</text>
+
+  <!-- subtítulo -->
+  <text x="202" y="172" font-family="Consolas, 'Courier New', monospace" font-size="17" letter-spacing="2" fill="#778DA9">MOTOR DE HOSTING · SA-MP & OPEN.MP · C# / .NET 8</text>
+
+  <!-- linha divisória -->
+  <rect x="200" y="196" width="620" height="2" fill="url(#line)"/>
+
+  <!-- pills -->
+  <g font-family="Consolas, 'Courier New', monospace" font-size="15">
+    <rect x="200" y="216" width="150" height="34" rx="8" fill="#0D1B2A" stroke="#415A77"/>
+    <text x="275" y="238" text-anchor="middle" fill="#E0E1DD">SA-MP 0.3.7</text>
+
+    <rect x="364" y="216" width="150" height="34" rx="8" fill="#0D1B2A" stroke="#415A77"/>
+    <text x="439" y="238" text-anchor="middle" fill="#E0E1DD">open.mp 1.6.7</text>
+
+    <rect x="528" y="216" width="130" height="34" rx="8" fill="#0D1B2A" stroke="#415A77"/>
+    <text x="593" y="238" text-anchor="middle" fill="#E0E1DD">SFTP 8821</text>
+
+    <rect x="672" y="216" width="130" height="34" rx="8" fill="#0D1B2A" stroke="#415A77"/>
+    <text x="737" y="238" text-anchor="middle" fill="#E0E1DD">cgroups</text>
+
+    <rect x="816" y="216" width="130" height="34" rx="8" fill="#0D1B2A" stroke="#415A77"/>
+    <text x="881" y="238" text-anchor="middle" fill="#E0E1DD">RCON UDP</text>
+  </g>
+
+  <!-- assinatura -->
+  <text x="1058" y="280" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#415A77">adriansdk</text>
+</svg>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NsProvider.Sftp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NsProvider.Core\NsProvider.Core.csproj" />
+    <ProjectReference Include="..\..\third_party\FxSsh\FxSsh.csproj" />
+  </ItemGroup>
+
+</Project>

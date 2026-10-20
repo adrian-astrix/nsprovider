@@ -1,0 +1,50 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{3BC11D51-B852-4B68-BE82-BF81166D192A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NsProvider.Core", "src\NsProvider.Core\NsProvider.Core.csproj", "{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NsProvider.Sftp", "src\NsProvider.Sftp\NsProvider.Sftp.csproj", "{3D16B861-3516-4E4E-A005-B6884C27CBBF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NsProvider.Api", "src\NsProvider.Api\NsProvider.Api.csproj", "{EF216FCF-AA26-4892-B9B3-E0E264343112}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "third_party", "third_party", "{2C7A0A80-635E-4683-B4C4-514308292F89}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FxSsh", "third_party\FxSsh\FxSsh.csproj", "{0642E07B-9C1C-4F6C-8647-D0E368F91FFC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D16B861-3516-4E4E-A005-B6884C27CBBF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D16B861-3516-4E4E-A005-B6884C27CBBF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D16B861-3516-4E4E-A005-B6884C27CBBF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D16B861-3516-4E4E-A005-B6884C27CBBF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EF216FCF-AA26-4892-B9B3-E0E264343112}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EF216FCF-AA26-4892-B9B3-E0E264343112}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EF216FCF-AA26-4892-B9B3-E0E264343112}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EF216FCF-AA26-4892-B9B3-E0E264343112}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0642E07B-9C1C-4F6C-8647-D0E368F91FFC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0642E07B-9C1C-4F6C-8647-D0E368F91FFC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0642E07B-9C1C-4F6C-8647-D0E368F91FFC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0642E07B-9C1C-4F6C-8647-D0E368F91FFC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3188F8FE-3ACC-4302-81F1-55CBFD9BB3F3} = {3BC11D51-B852-4B68-BE82-BF81166D192A}
+		{3D16B861-3516-4E4E-A005-B6884C27CBBF} = {3BC11D51-B852-4B68-BE82-BF81166D192A}
+		{EF216FCF-AA26-4892-B9B3-E0E264343112} = {3BC11D51-B852-4B68-BE82-BF81166D192A}
+		{0642E07B-9C1C-4F6C-8647-D0E368F91FFC} = {2C7A0A80-635E-4683-B4C4-514308292F89}
+	EndGlobalSection
+EndGlobal
