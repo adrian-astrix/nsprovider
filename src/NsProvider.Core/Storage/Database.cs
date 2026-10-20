@@ -76,27 +76,20 @@ public sealed class Database
             );
             CREATE UNIQUE INDEX IF NOT EXISTS ix_servers_port ON servers(port);
             CREATE INDEX IF NOT EXISTS ix_servers_user ON servers(user_id);
+            CREATE TABLE IF NOT EXISTS backups (
+                id          TEXT PRIMARY KEY,
+                server_id   TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                status      TEXT NOT NULL,
+                size_bytes  INTEGER,
+                created_at  TEXT NOT NULL,
+                finished_at TEXT,
+                error       TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ix_backups_server ON backups(server_id);
             """);
 
         // migrações incrementais
         try { conn.Execute("ALTER TABLE users ADD COLUMN uid INTEGER"); }
         catch (SqliteException) { /* coluna já existe */ }
-    }
-
-    public static string HashPassword(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100_000, HashAlgorithmName.SHA256, 32);
-        return $"pbkdf2${Convert.ToHexString(salt).ToLowerInvariant()}${Convert.ToHexString(hash).ToLowerInvariant()}";
-    }
-
-    public static bool VerifyPassword(string password, string stored)
-    {
-        var parts = stored.Split('$');
-        if (parts.Length != 3 || parts[0] != "pbkdf2") return false;
-        var salt = Convert.FromHexString(parts[1]);
-        var expected = Convert.FromHexString(parts[2]);
-        var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100_000, HashAlgorithmName.SHA256, expected.Length);
-        return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
 }

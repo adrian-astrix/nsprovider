@@ -19,13 +19,16 @@ public sealed class UserRepository
         return conn;
     }
 
-    public User Create(string name, string password)
+    /// <summary>
+    /// Cria usuário SEM senha (o painel web é a fonte de autenticação — igual wings/Pterodactyl).
+    /// O painel pode passar o próprio ID (mesmo usuário em múltiplos motores).
+    /// </summary>
+    public User Create(string name, Guid? id = null)
     {
         var user = new User
         {
-            Id = Guid.NewGuid(),
+            Id = id ?? Guid.NewGuid(),
             Name = name.Trim(),
-            PasswordHash = Database.HashPassword(password),
             CreatedAt = DateTime.UtcNow,
         };
         using var conn = Open();
@@ -33,8 +36,8 @@ public sealed class UserRepository
         user.Uid = conn.ExecuteScalar<int?>(
             "SELECT COALESCE(MAX(uid), 9999) + 1 FROM users", param: null, tx) ?? 10000;
         conn.Execute(
-            "INSERT INTO users (id, name, password_hash, created_at, uid) VALUES (@id, @Name, @PasswordHash, @CreatedAt, @Uid)",
-            new { id = user.Id.ToString(), user.Name, user.PasswordHash, user.CreatedAt, user.Uid }, tx);
+            "INSERT INTO users (id, name, password_hash, created_at, uid) VALUES (@id, @Name, '', @CreatedAt, @Uid)",
+            new { id = user.Id.ToString(), user.Name, user.CreatedAt, user.Uid }, tx);
         tx.Commit();
         return user;
     }
@@ -60,7 +63,7 @@ public sealed class UserRepository
     {
         using var conn = Open();
         return conn.QueryFirstOrDefault<User>(
-            "SELECT id AS Id, name AS Name, password_hash AS PasswordHash, created_at AS CreatedAt, uid AS Uid FROM users WHERE name = @name",
+            "SELECT id AS Id, name AS Name, created_at AS CreatedAt, uid AS Uid FROM users WHERE name = @name",
             new { name });
     }
 
@@ -68,7 +71,7 @@ public sealed class UserRepository
     {
         using var conn = Open();
         return conn.QueryFirstOrDefault<User>(
-            "SELECT id AS Id, name AS Name, password_hash AS PasswordHash, created_at AS CreatedAt, uid AS Uid FROM users WHERE id = @id",
+            "SELECT id AS Id, name AS Name, created_at AS CreatedAt, uid AS Uid FROM users WHERE id = @id",
             new { id = id.ToString() });
     }
 
@@ -76,15 +79,7 @@ public sealed class UserRepository
     {
         using var conn = Open();
         return conn.Query<User>(
-            "SELECT id AS Id, name AS Name, password_hash AS PasswordHash, created_at AS CreatedAt FROM users ORDER BY created_at").ToList();
-    }
-
-    public bool UpdatePassword(Guid id, string newPassword)
-    {
-        using var conn = Open();
-        return conn.Execute(
-            "UPDATE users SET password_hash = @hash WHERE id = @id",
-            new { hash = Database.HashPassword(newPassword), id = id.ToString() }) > 0;
+            "SELECT id AS Id, name AS Name, created_at AS CreatedAt, uid AS Uid FROM users ORDER BY created_at").ToList();
     }
 
     public bool Delete(Guid id)

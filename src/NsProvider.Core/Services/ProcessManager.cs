@@ -226,6 +226,18 @@ public sealed class ProcessManager
         }
     }
 
+    /// <summary>Quantidade de servidores rodando agora.</summary>
+    public int RunningCount
+    {
+        get
+        {
+            var n = 0;
+            foreach (var kvp in _processes)
+                if (!kvp.Value.Proc.HasExited) n++;
+            return n;
+        }
+    }
+
     private void OnExited(Guid serverId, ManagedProcess mp)
     {
         // libera do dicionário se ainda estiver lá (crash / exit próprio)

@@ -26,7 +26,7 @@ public sealed class ServerManager(
     public ProcessManager Processes => _processes;
 
     public GameServer Create(Guid userId, ServerType type, int maxPlayers,
-        string? name, string? hostname, string? gamemode, bool announce)
+        string? name, string? hostname, string? gamemode, bool announce, Guid? serverId = null)
     {
         var user = _users.GetById(userId)
             ?? throw new InvalidOperationException("Usuário não encontrado.");
@@ -38,8 +38,12 @@ public sealed class ServerManager(
             throw new InvalidOperationException(
                 $"Template '{TemplateManager.PackageName(type)}' não está instalado no motor.");
 
-        var serverId = Guid.NewGuid();
-        var serverDir = AppPaths.ServerDir(userId, serverId);
+        // o painel web pode trazer o próprio UUID (mesmo ID em múltiplos motores);
+        // sem ID, o motor gera
+        if (serverId is { } requested && _servers.GetById(requested) is not null)
+            throw new InvalidOperationException("Já existe um servidor com esse ID.");
+        var id = serverId ?? Guid.NewGuid();
+        var serverDir = AppPaths.ServerDir(userId, id);
 
         var gamemodes = ConfigGenerator.ListGamemodes(type, AppPaths.TemplateDir(type));
         var effectiveGamemode = string.IsNullOrWhiteSpace(gamemode) ? gamemodes.FirstOrDefault() : gamemode;
@@ -51,7 +55,7 @@ public sealed class ServerManager(
 
         var server = new GameServer
         {
-            Id = serverId,
+            Id = id,
             UserId = userId,
             Type = type,
             Name = string.IsNullOrWhiteSpace(name) ? $"server-{serverId.ToString()[..8]}" : name.Trim(),
@@ -120,6 +124,10 @@ public sealed class ServerManager(
         _servers.Delete(serverId);
         var dir = AppPaths.ServerDir(server.UserId, serverId);
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+
+        // backups ficam fora da pasta do servidor — limpa também
+        var backupDir = AppPaths.BackupDir(serverId);
+        if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
     }
 
     public GameServer Start(Guid serverId)
@@ -205,6 +213,9 @@ public sealed class ServerManager(
             Directory.CreateDirectory(Path.Combine(dst, rel));
         }
     }
+
+    /// <summary>Chown recursivo (usado também pelo restore de backup).</summary>
+    public static void ChownRecursivePublic(string dir, int uid, int gid) => ChownRecursive(dir, uid, gid);
 
     private static void ChownRecursive(string dir, int uid, int gid)
     {

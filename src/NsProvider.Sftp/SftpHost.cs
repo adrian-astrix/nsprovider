@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using FxSsh;
 using FxSsh.Logging;
 using FxSsh.Services;
 using FxSsh.Services.Sftp;
 using NsProvider.Core;
+using NsProvider.Core.Services;
 using NsProvider.Core.Storage;
 
 namespace NsProvider.Sftp;
@@ -11,19 +13,26 @@ namespace NsProvider.Sftp;
 /// <summary>
 /// Servidor SSH/SFTP embutido do motor (FxSsh, vendorado — sem dependências externas).
 ///  - Porta 8821 (configurável via NSP_SFTP_PORT)
-///  - Autenticação: usuários do motor (SQLite, senha PBKDF2)
+///  - Autenticação: SEM senha local — o motor pergunta ao painel web
+///    (POST {NSP_PANEL_URL}/api/remote/sftp/auth), igual wings/Pterodactyl
 ///  - Chroot: cada usuário vê / = {Base}/servers/{userId}
 /// Host keys RSA + ECDSA geradas na 1ª execução e persistidas em {Base}/data/keys.
 /// </summary>
 public sealed class SftpHost : IAsyncDisposable
 {
     private readonly UserRepository _users;
+    private readonly PanelClient _panel;
     private readonly int _port;
     private SshServer? _server;
+    private bool _noPanelWarned;
 
-    public SftpHost(UserRepository users)
+    /// <summary>username → userId validado pelo painel nesta sessão do motor.</summary>
+    private readonly ConcurrentDictionary<string, Guid> _authCache = new();
+
+    public SftpHost(UserRepository users, PanelClient panel)
     {
         _users = users;
+        _panel = panel;
         _port = int.TryParse(Environment.GetEnvironmentVariable("NSP_SFTP_PORT"), out var p) ? p : 8821;
     }
 
@@ -53,9 +62,29 @@ public sealed class SftpHost : IAsyncDisposable
                 {
                     // apenas senha; "none" e "publickey" ficam desligados
                     if (e.AuthMethod != "password") { e.Result = false; return; }
-                    var user = _users.GetByName(e.Username);
-                    e.Result = user is not null &&
-                               Database.VerifyPassword(e.Password, user.PasswordHash);
+
+                    if (!_panel.Enabled)
+                    {
+                        if (!_noPanelWarned)
+                        {
+                            _noPanelWarned = true;
+                            Console.Error.WriteLine(
+                                "[motor] SFTP recusado: motor sem painel configurado (defina NSP_PANEL_URL + NSP_PANEL_TOKEN). O motor não armazena senhas.");
+                        }
+                        e.Result = false;
+                        return;
+                    }
+
+                    // validação no painel (bloqueante — callback do FxSsh é síncrono)
+                    var result = _panel.AuthenticateSftpAsync(e.Username, e.Password, ip: "")
+                        .GetAwaiter().GetResult();
+                    if (result is null) { e.Result = false; return; }
+
+                    _authCache[e.Username] = result.UserId;
+                    // usuário autorizado pelo painel mas ainda sem registro local → cria (id do painel)
+                    if (_users.GetById(result.UserId) is null)
+                        _users.Create(result.Name, result.UserId);
+                    e.Result = true;
                 };
             }
             else if (service is ConnectionService conn)
@@ -68,10 +97,12 @@ public sealed class SftpHost : IAsyncDisposable
                 conn.SubsystemRequested += (ss, e) =>
                 {
                     if (e.Name != "sftp") return;
-                    var user = _users.GetByName(e.AttachedUserAuthArgs.Username);
-                    if (user is null) return;
+                    var username = e.AttachedUserAuthArgs.Username;
+                    var userId = _users.GetByName(username)?.Id
+                        ?? (_authCache.TryGetValue(username, out var cached) ? cached : null);
+                    if (userId is null) return;
 
-                    var root = AppPaths.UserDir(user.Id);
+                    var root = AppPaths.UserDir(userId.Value);
                     Directory.CreateDirectory(root);
 
                     e.Agreed = true;

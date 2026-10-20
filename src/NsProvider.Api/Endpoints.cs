@@ -11,18 +11,22 @@ public static class Endpoints
     {
         var users = app.Services.GetRequiredService<UserRepository>();
 
+        // Usuário SEM senha: autenticação é coisa do painel web (estilo wings/Pterodactyl).
+        // O painel pode passar o próprio UUID (mesmo usuário em múltiplos motores).
         app.MapPost("/api/users", (CreateUserRequest req) =>
         {
-            if (string.IsNullOrWhiteSpace(req.Name) || req.Password?.Length < 4)
-                return Results.BadRequest(new { error = "Nome e senha (mín. 4 caracteres) obrigatórios." });
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return Results.BadRequest(new { error = "Nome obrigatório." });
+            if (req.Id is { } id && id == Guid.Empty)
+                return Results.BadRequest(new { error = "ID inválido." });
             try
             {
-                var user = users.Create(req.Name, req.Password);
+                var user = users.Create(req.Name, req.Id);
                 return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Name, user.CreatedAt });
             }
             catch (Exception ex) when (ex.Message.Contains("UNIQUE"))
             {
-                return Results.Conflict(new { error = "Nome de usuário já existe." });
+                return Results.Conflict(new { error = "Nome (ou ID) de usuário já existe." });
             }
         });
 
@@ -35,18 +39,6 @@ public static class Endpoints
             return u is null
                 ? Results.NotFound(new { error = "Usuário não encontrado." })
                 : Results.Ok(new { u.Id, u.Name, u.CreatedAt });
-        });
-
-        app.MapPatch("/api/users/{id:guid}/password", (Guid id, ChangePasswordRequest req) =>
-        {
-            if (string.IsNullOrEmpty(req.NewPassword) || req.NewPassword.Length < 4)
-                return Results.BadRequest(new { error = "Senha nova inválida." });
-            var u = users.GetById(id);
-            if (u is null) return Results.NotFound(new { error = "Usuário não encontrado." });
-            if (!Database.VerifyPassword(req.OldPassword ?? "", u.PasswordHash))
-                return Results.Unauthorized();
-            users.UpdatePassword(id, req.NewPassword);
-            return Results.Ok(new { changed = true });
         });
 
         app.MapDelete("/api/users/{id:guid}", (Guid id) =>
@@ -64,7 +56,8 @@ public static class Endpoints
             try
             {
                 var type = ParseType(req.Type);
-                var server = manager.Create(userId, type, req.MaxPlayers, req.Name, req.Hostname, req.Gamemode, req.Announce);
+                var server = manager.Create(userId, type, req.MaxPlayers, req.Name, req.Hostname,
+                    req.Gamemode, req.Announce, req.Id);
                 return Results.Created($"/api/servers/{server.Id}", ServerView(server, manager, includeRcon: true));
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
@@ -228,6 +221,26 @@ public static class Endpoints
             { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        app.MapPost("/api/servers/{id:guid}/files/rename", (Guid id, RenameRequest req) =>
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.From) || string.IsNullOrWhiteSpace(req.To))
+                    return Results.BadRequest(new { error = "'from' e 'to' obrigatórios." });
+                var (from, _) = ResolvePath(servers, id, req.From);
+                var (to, _) = ResolvePath(servers, id, req.To);
+                if (!File.Exists(from) && !Directory.Exists(from))
+                    return Results.NotFound(new { error = "Arquivo/pasta de origem não existe." });
+                if (File.Exists(to) || Directory.Exists(to))
+                    return Results.BadRequest(new { error = "Destino já existe." });
+                if (Directory.Exists(from)) Directory.Move(from, to);
+                else File.Move(from, to);
+                return Results.Ok(new { renamed = req.From, to = req.To });
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+            { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         app.MapGet("/api/servers/{id:guid}/files/download", (Guid id, string path) =>
         {
             try
@@ -305,6 +318,79 @@ public static class Endpoints
         });
     }
 
+    public static void MapStats(WebApplication app)
+    {
+        var stats = app.Services.GetRequiredService<SystemStatsService>();
+        app.MapGet("/api/stats", () => Results.Ok(stats.GetSnapshot()));
+    }
+
+    public static void MapBackups(WebApplication app)
+    {
+        var backupService = app.Services.GetRequiredService<BackupService>();
+
+        app.MapPost("/api/servers/{id:guid}/backups", (Guid id) =>
+        {
+            try
+            {
+                var backup = backupService.Start(id); // assíncrono: status "pending"
+                return Results.Accepted($"/api/servers/{id}/backups/{backup.Id}", BackupView(backup));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapGet("/api/servers/{id:guid}/backups", (Guid id) =>
+            Results.Ok(backupService.List(id).Select(BackupView)));
+
+        app.MapGet("/api/servers/{id:guid}/backups/{backupId:guid}", (Guid id, Guid backupId) =>
+        {
+            try { return Results.Ok(BackupView(backupService.Get(id, backupId))); }
+            catch (InvalidOperationException ex) { return Results.NotFound(new { error = ex.Message }); }
+        });
+
+        app.MapGet("/api/servers/{id:guid}/backups/{backupId:guid}/download", (Guid id, Guid backupId) =>
+        {
+            try
+            {
+                var path = backupService.GetFilePath(id, backupId);
+                return Results.File(path, "application/gzip", backupId + ".tar.gz");
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/servers/{id:guid}/backups/{backupId:guid}/restore", (Guid id, Guid backupId) =>
+        {
+            try
+            {
+                backupService.Restore(id, backupId);
+                return Results.Ok(new { restored = backupId });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (UnauthorizedAccessException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapDelete("/api/servers/{id:guid}/backups/{backupId:guid}", (Guid id, Guid backupId) =>
+        {
+            try
+            {
+                backupService.Delete(id, backupId);
+                return Results.Ok(new { deleted = backupId });
+            }
+            catch (InvalidOperationException ex) { return Results.NotFound(new { error = ex.Message }); }
+        });
+    }
+
+    private static object BackupView(Backup b) => new
+    {
+        b.Id,
+        b.ServerId,
+        b.Status,
+        sizeBytes = b.SizeBytes,
+        sizeMb = b.SizeBytes is { } s ? s / 1024 / 1024 : (long?)null,
+        b.CreatedAt,
+        b.FinishedAt,
+        b.Error,
+    };
+
     // ---- helpers ----
 
     public static bool TryParseType(string value, out ServerType type)
@@ -364,9 +450,9 @@ public static class Endpoints
     };
 }
 
-public sealed record CreateUserRequest(string Name, string? Password);
-public sealed record ChangePasswordRequest(string? OldPassword, string? NewPassword);
-public sealed record CreateServerRequest(string Type, int MaxPlayers, string? Name, string? Hostname, string? Gamemode, bool Announce = false);
+public sealed record CreateUserRequest(string Name, Guid? Id);
+public sealed record CreateServerRequest(string Type, int MaxPlayers, string? Name, string? Hostname, string? Gamemode, bool Announce = false, Guid? Id = null);
 public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, string? Name, string? RconPassword, string? Gamemode, bool? Announce);
 public sealed record ConsoleCommandRequest(string? Command);
 public sealed record MkdirRequest(string? Path);
+public sealed record RenameRequest(string? From, string? To);

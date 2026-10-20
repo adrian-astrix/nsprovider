@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using NsProvider.Api;
 using NsProvider.Core;
 using NsProvider.Core.Services;
@@ -14,14 +15,37 @@ builder.WebHost.UseUrls(
 builder.Services.AddSingleton<Database>();
 builder.Services.AddSingleton<UserRepository>();
 builder.Services.AddSingleton<ServerRepository>();
+builder.Services.AddSingleton<BackupRepository>();
 builder.Services.AddSingleton<PortAllocator>();
 builder.Services.AddSingleton<TemplateManager>();
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<ServerManager>();
+builder.Services.AddSingleton<PanelClient>();
 builder.Services.AddSingleton<SftpHost>();
 builder.Services.AddSingleton<CgroupManager>();
 builder.Services.AddSingleton<DiskQuotaService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DiskQuotaService>());
+builder.Services.AddSingleton<SystemStatsService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SystemStatsService>());
+builder.Services.AddSingleton<BackupService>();
+
+// CORS: só a origem do painel web (NSP_PANEL_URL) pode chamar a API do browser.
+// Sem painel configurado → aberto (modo dev/local).
+var panelUrl = PanelClient.PanelUrl;
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+{
+    if (!string.IsNullOrEmpty(panelUrl))
+    {
+        var origin = Uri.TryCreate(panelUrl, UriKind.Absolute, out var uri)
+            ? uri.GetLeftPart(UriPartial.Authority) : panelUrl;
+        p.WithOrigins(origin).AllowAnyHeader().AllowAnyMethod();
+        Console.WriteLine($"[motor] origem autorizada: {origin}");
+    }
+    else
+    {
+        p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+    }
+}));
 
 // cgroups v2: slice do motor + limpeza de grupos vazios
 var cgroups = new CgroupManager();
@@ -37,10 +61,14 @@ var app = builder.Build();
 // Reaper: mata servidores órfãos de execuções anteriores do motor
 ProcessManager.CleanupOrphanProcesses();
 
-// API key opcional (env NSP_API_KEY) — protege a API quando exposta
-var apiKey = Environment.GetEnvironmentVariable("NSP_API_KEY");
-if (!string.IsNullOrEmpty(apiKey))
+app.UseCors();
+
+// Token do painel (NSP_PANEL_TOKEN, fallback NSP_API_KEY) — protege toda a /api.
+// A key é gerada e controlada pelo painel web; /health fica aberto pra monitoração.
+var panelToken = PanelClient.PanelToken ?? Environment.GetEnvironmentVariable("NSP_API_KEY");
+if (!string.IsNullOrEmpty(panelToken))
 {
+    var expectedBytes = System.Text.Encoding.UTF8.GetBytes(panelToken);
     app.Use(async (ctx, next) =>
     {
         if (ctx.Request.Path.StartsWithSegments("/health"))
@@ -48,22 +76,36 @@ if (!string.IsNullOrEmpty(apiKey))
             await next();
             return;
         }
-        if (!ctx.Request.Headers.TryGetValue("X-Api-Key", out var given) || given != apiKey)
+        string? given = ctx.Request.Headers["X-Api-Key"].FirstOrDefault();
+        if (string.IsNullOrEmpty(given))
+        {
+            var auth = ctx.Request.Headers["Authorization"].FirstOrDefault();
+            if (auth?.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true)
+                given = auth["Bearer ".Length..].Trim();
+        }
+        var givenBytes = System.Text.Encoding.UTF8.GetBytes(given ?? "");
+        if (!CryptographicOperations.FixedTimeEquals(expectedBytes, givenBytes))
         {
             ctx.Response.StatusCode = 401;
-            await ctx.Response.WriteAsJsonAsync(new { error = "API key inválida." });
+            await ctx.Response.WriteAsJsonAsync(new { error = "Token do painel inválido ou ausente." });
             return;
         }
         await next();
     });
 }
+else
+{
+    Console.WriteLine("[motor] AVISO: sem NSP_PANEL_TOKEN/NSP_API_KEY — API sem autenticação (modo dev)");
+}
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.1.0" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.2.0" }));
 
 Endpoints.MapUsers(app);
 Endpoints.MapServers(app);
 Endpoints.MapFiles(app);
 Endpoints.MapTemplates(app);
+Endpoints.MapStats(app);
+Endpoints.MapBackups(app);
 
 // SFTP embutido: sobe junto com a API e desce no shutdown
 var sftp = app.Services.GetRequiredService<SftpHost>();

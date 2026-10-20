@@ -14,6 +14,7 @@ public static class AppPaths
 
     public static string ServersDir => Path.Combine(Base, "servers");
     public static string TemplatesDir => Path.Combine(Base, "templates");
+    public static string BackupsDir => Path.Combine(Base, "backups");
     public static string DataDir => Path.Combine(Base, "data");
     public static string DatabaseFile => Path.Combine(DataDir, "motor.db");
     public static string KeysDir => Path.Combine(DataDir, "keys");
@@ -23,6 +24,8 @@ public static class AppPaths
     public static string ServerDir(Guid userId, Guid serverId) =>
         Path.Combine(ServersDir, userId.ToString(), serverId.ToString());
 
+    public static string BackupDir(Guid serverId) => Path.Combine(BackupsDir, serverId.ToString());
+
     public static string TemplateDir(ServerType type) =>
         Path.Combine(TemplatesDir, type == ServerType.Samp ? "samp" : "openmp");
 
@@ -30,6 +33,7 @@ public static class AppPaths
     {
         Directory.CreateDirectory(ServersDir);
         Directory.CreateDirectory(TemplatesDir);
+        Directory.CreateDirectory(BackupsDir);
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(KeysDir);
     }
