@@ -10,7 +10,7 @@ namespace NsProvider.Core.Services;
 ///  - Recursos: processo anexado a um cgroup v2 (memória, CPU, pids) — sem Docker
 /// O status "running" vive aqui (em memória); o banco guarda o resto.
 /// </summary>
-public sealed class ProcessManager
+public sealed class ProcessManager(ServerEventHub hub)
 {
     public const int ConsoleBufferLines = 1000;
     public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
@@ -27,6 +27,7 @@ public sealed class ProcessManager
     private readonly ConcurrentDictionary<Guid, object> _eventsLock = new();
     private readonly ConcurrentDictionary<Guid, List<string>> _events = new();
     private readonly CgroupManager _cgroups = new();
+    private readonly ServerEventHub _hub = hub;
 
     public event Action<Guid>? ProcessExited;
 
@@ -89,6 +90,7 @@ public sealed class ProcessManager
             list.Add(line);
             if (list.Count > 100) list.RemoveRange(0, list.Count - 100);
         }
+        _hub.Motor(serverId, line); // streaming em tempo real (SSE)
     }
 
     public IReadOnlyList<string> GetEvents(Guid serverId, int maxLines)
@@ -151,6 +153,7 @@ public sealed class ProcessManager
         mp.StartedAtUtc = DateTime.UtcNow;
         SendEventLine(serverId, $"[motor] processo iniciado (pid {proc.Id}, uid {uid})");
         _processes[serverId] = mp;
+        _hub.Status(serverId, true, proc.Id, mp.StartedAtUtc);
 
         // limites de recursos (cgroups) — o filho do samp herda o cgroup no fork
         _cgroups.Attach(serverId, proc.Id, memoryMb, cpuCores, pidsMax);
@@ -189,6 +192,7 @@ public sealed class ProcessManager
         {
             SendEventLine(serverId, "[motor] processo finalizado");
             _cgroups.Remove(serverId);
+            _hub.Status(serverId, false);
             mp.Proc.Dispose();
             ProcessExited?.Invoke(serverId);
         }
@@ -245,6 +249,7 @@ public sealed class ProcessManager
         {
             SendEventLine(serverId, "[motor] processo finalizado");
             _cgroups.Remove(serverId);
+            _hub.Status(serverId, false);
             ProcessExited?.Invoke(serverId);
         }
     }

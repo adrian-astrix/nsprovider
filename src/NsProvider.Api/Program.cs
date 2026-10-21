@@ -18,6 +18,9 @@ builder.Services.AddSingleton<ServerRepository>();
 builder.Services.AddSingleton<BackupRepository>();
 builder.Services.AddSingleton<PortAllocator>();
 builder.Services.AddSingleton<NetworkService>();
+builder.Services.AddSingleton<ServerEventHub>();
+builder.Services.AddSingleton<ConsoleTailService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ConsoleTailService>());
 builder.Services.AddSingleton<TemplateManager>();
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<ServerManager>();
@@ -84,6 +87,10 @@ if (!string.IsNullOrEmpty(panelToken))
             if (auth?.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true)
                 given = auth["Bearer ".Length..].Trim();
         }
+        // EventSource do browser não aceita headers custom → token também via
+        // query "?access_token=..." (CORS já limita a origem ao painel)
+        if (string.IsNullOrEmpty(given))
+            given = ctx.Request.Query["access_token"].FirstOrDefault();
         var givenBytes = System.Text.Encoding.UTF8.GetBytes(given ?? "");
         if (!CryptographicOperations.FixedTimeEquals(expectedBytes, givenBytes))
         {
@@ -99,7 +106,7 @@ else
     Console.WriteLine("[motor] AVISO: sem NSP_PANEL_TOKEN/NSP_API_KEY — API sem autenticação (modo dev)");
 }
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.2.0" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.3.0" }));
 
 Endpoints.MapUsers(app);
 Endpoints.MapServers(app);
@@ -108,6 +115,7 @@ Endpoints.MapTemplates(app);
 Endpoints.MapStats(app);
 Endpoints.MapBackups(app);
 Endpoints.MapNetwork(app);
+Endpoints.MapEvents(app);
 
 // SFTP embutido: sobe junto com a API e desce no shutdown
 var sftp = app.Services.GetRequiredService<SftpHost>();

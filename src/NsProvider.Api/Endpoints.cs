@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Http.Json;
 using NsProvider.Core;
 using NsProvider.Core.Services;
@@ -320,6 +322,68 @@ public static class Endpoints
         });
     }
 
+    public static void MapEvents(WebApplication app)
+    {
+        var manager = app.Services.GetRequiredService<ServerManager>();
+        var servers = app.Services.GetRequiredService<ServerRepository>();
+        var hub = app.Services.GetRequiredService<ServerEventHub>();
+
+        // SSE por servidor: status inicial + últimas linhas + tudo ao vivo (log/motor/status)
+        // Ex.: curl -N -H "X-Api-Key: $TOKEN" http://motor:8383/api/servers/{id}/events?lines=100
+        app.MapGet("/api/servers/{id:guid}/events", async (Guid id, int? lines, HttpContext ctx) =>
+        {
+            GameServer server;
+            try { (server, _) = manager.GetWithStatus(id); }
+            catch (InvalidOperationException ex) { return Results.NotFound(new { error = ex.Message }); }
+
+            var (subId, reader) = hub.Subscribe(id);
+            try
+            {
+                await Sse.StartAsync(ctx);
+
+                var status = manager.Processes.GetStatus(id);
+                await Sse.WriteAsync(ctx, "status",
+                    new ServerEvent("status", id, null, status.Running, status.Pid, status.StartedAt));
+
+                // histórico do console (eventos do motor + stdout + log do jogo)
+                var (_, history) = manager.GetConsole(id, Math.Clamp(lines ?? 100, 0, 1000));
+                foreach (var line in history)
+                    await Sse.WriteAsync(ctx, "log", new ServerEvent("log", id, line));
+
+                await Sse.PumpAsync(ctx, reader);
+            }
+            catch (OperationCanceledException) { /* painel desconectou */ }
+            catch (IOException) { /* conexão caiu no meio da escrita */ }
+            finally { hub.Unsubscribe(subId); }
+
+            return Results.Empty;
+        });
+
+        // SSE global: snapshot inicial + status de todos os servidores (sem linhas de log)
+        app.MapGet("/api/events", async (HttpContext ctx) =>
+        {
+            var (subId, reader) = hub.Subscribe(null);
+            try
+            {
+                await Sse.StartAsync(ctx);
+
+                var snapshot = servers.ListAll().Select(s =>
+                {
+                    var st = manager.Processes.GetStatus(s.Id);
+                    return new { id = s.Id, name = s.Name, running = st.Running, pid = st.Pid, startedAt = st.StartedAt };
+                }).ToList();
+                await Sse.WriteAsync(ctx, "snapshot", new { servers = snapshot, at = DateTime.UtcNow });
+
+                await Sse.PumpAsync(ctx, reader);
+            }
+            catch (OperationCanceledException) { /* painel desconectou */ }
+            catch (IOException) { /* conexão caiu no meio da escrita */ }
+            finally { hub.Unsubscribe(subId); }
+
+            return Results.Empty;
+        });
+    }
+
     public static void MapNetwork(WebApplication app)
     {
         var network = app.Services.GetRequiredService<NetworkService>();
@@ -478,3 +542,59 @@ public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, stri
 public sealed record ConsoleCommandRequest(string? Command);
 public sealed record MkdirRequest(string? Path);
 public sealed record RenameRequest(string? From, string? To);
+
+/// <summary>
+/// Streaming SSE (text/event-stream): mantém a conexão aberta e empurra eventos.
+/// Formato: "event: log\ndata: {json}\n\n" + ping de 15s para proxies não fecharem.
+/// </summary>
+internal static class Sse
+{
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    public static async Task StartAsync(HttpContext ctx)
+    {
+        var res = ctx.Response;
+        res.StatusCode = 200;
+        res.ContentType = "text/event-stream; charset=utf-8";
+        res.Headers.CacheControl = "no-cache, no-transform";
+        res.Headers["X-Accel-Buffering"] = "no"; // nginx/proxy: não bufferizar
+        await res.WriteAsync("retry: 3000\n\n", ctx.RequestAborted);
+        await res.Body.FlushAsync(ctx.RequestAborted);
+    }
+
+    public static async Task WriteAsync(HttpContext ctx, string eventName, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOpts);
+        await ctx.Response.WriteAsync($"event: {eventName}\ndata: {json}\n\n", ctx.RequestAborted);
+        await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+    }
+
+    /// <summary>Loop principal: lê do canal do assinante; a cada 15s sem evento manda ": ping".</summary>
+    public static async Task PumpAsync(HttpContext ctx, ChannelReader<ServerEvent> reader)
+    {
+        var ct = ctx.RequestAborted;
+        while (!ct.IsCancellationRequested)
+        {
+            using var heartbeat = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var wait = reader.WaitToReadAsync(ct).AsTask();
+            var ping = Task.Delay(TimeSpan.FromSeconds(15), heartbeat.Token);
+            var done = await Task.WhenAny(wait, ping);
+            heartbeat.Cancel(); // cancela o timer pendente (não o canal)
+
+            if (done == ping)
+            {
+                await ctx.Response.WriteAsync($": ping {DateTime.UtcNow:O}\n\n", ct);
+                await ctx.Response.Body.FlushAsync(ct);
+                continue;
+            }
+
+            if (!await wait) break; // hub completou o canal (unsubscribe)
+            while (reader.TryRead(out var ev))
+            {
+                var json = JsonSerializer.Serialize(ev, JsonOpts);
+                await ctx.Response.WriteAsync($"event: {ev.Type}\ndata: {json}\n\n", ct);
+            }
+            await ctx.Response.Body.FlushAsync(ct);
+        }
+    }
+}

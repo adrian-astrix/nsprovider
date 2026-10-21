@@ -14,7 +14,8 @@ public sealed class ServerManager(
     ServerRepository servers,
     PortAllocator ports,
     TemplateManager templates,
-    ProcessManager processes)
+    ProcessManager processes,
+    ConsoleTailService tails)
 {
     private readonly Database _db = db;
     private readonly UserRepository _users = users;
@@ -22,6 +23,7 @@ public sealed class ServerManager(
     private readonly PortAllocator _ports = ports;
     private readonly TemplateManager _templates = templates;
     private readonly ProcessManager _processes = processes;
+    private readonly ConsoleTailService _tails = tails;
 
     public ProcessManager Processes => _processes;
 
@@ -246,6 +248,12 @@ public sealed class ServerManager(
         var bin = Path.Combine(serverDir, TemplateManager.BinaryName(server.Type));
         var uid = _users.EnsureUid(server.UserId);
         ChownRecursive(serverDir, uid, uid); // cobre pastas criadas antes da migração de UID
+
+        // marca onde o log termina ANTES do boot: o SSE (tail) só transmite o que for novo
+        var logPath = Path.Combine(serverDir, LogFileName(server.Type));
+        var logLen = File.Exists(logPath) ? new FileInfo(logPath).Length : 0;
+        _tails.MarkStarting(serverId, logLen);
+
         _processes.Start(serverId, bin, serverDir,
             uid, uid,
             server.MemoryMb ?? CgroupManager.MemoryMb,
@@ -253,6 +261,10 @@ public sealed class ServerManager(
             CgroupManager.PidsMax);
         return server;
     }
+
+    /// <summary>Arquivo de log de cada engine (console real — stdout não é usado).</summary>
+    public static string LogFileName(ServerType type) =>
+        type == ServerType.Samp ? "server_log.txt" : "log.txt";
 
     public void Stop(Guid serverId) => _processes.Stop(serverId);
 

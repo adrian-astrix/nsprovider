@@ -64,6 +64,7 @@ de recursos — **sem Docker, sem senha de usuário armazenada, sem dependência
 | 📁 **Arquivos** | listar, criar pasta, renomear, deletar, upload, download — path traversal bloqueado |
 | 🔐 **SFTP embutido** | porta 8821, chroot por usuário, senha validada **no painel web** (nada armazenado no motor) |
 | 🌐 **IP dedicado** | cada servidor pode escutar num IPv4 próprio — **dois clientes usam 7777 em IPs diferentes**; porta personalizada por servidor |
+| 📡 **Tempo real (SSE)** | console e status empurrados ao vivo por Server-Sent Events — painel sem polling |
 | 💾 **Backups** | por servidor, `tar.gz`, com restore, download, delete e limites (`NSP_BACKUP_MAX_MB`/`MAX_COUNT`) |
 | 📊 **Stats da máquina** | CPU (modelo, cores, threads, uso), memória, disco e servidores (total × rodando) |
 | ⚙️ **Limites sem Docker** | cgroups v2: memória, CPU e nº de processos por servidor |
@@ -105,6 +106,42 @@ curl -X PATCH -H "Content-Type: application/json" -H "X-Api-Key: $TOKEN" \
   -d '{"maxPlayers":200}' http://127.0.0.1:8383/api/servers/{serverId}
 curl -X POST -H "X-Api-Key: $TOKEN" http://127.0.0.1:8383/api/servers/{serverId}/backups
 ```
+
+## Tempo real (SSE): console e status ao vivo
+
+O painel abre **uma conexão** e recebe tudo empurrado — sem ficar dando GET a cada segundo.
+SSE (Server-Sent Events) é HTTP puro: atravessa proxy/nginx sem configuração extra.
+
+```bash
+# console + status de um servidor ao vivo
+curl -N -H "X-Api-Key: $TOKEN" http://127.0.0.1:8383/api/servers/{serverId}/events?lines=100
+
+# status de TODOS os servidores (sem linhas de log)
+curl -N -H "X-Api-Key: $TOKEN" http://127.0.0.1:8383/api/events
+```
+
+Eventos que chegam (`event: <tipo>` + `data: {json}`):
+
+| evento | quando | dados |
+|---|---|---|
+| `snapshot` | ao conectar no `/api/events` | estado de todos os servidores |
+| `status` | ligou / parou / caiu | `running`, `pid`, `startedAt` |
+| `log` | linha nova no console do jogo | `line` (tail de `server_log.txt`/`log.txt`) |
+| `motor` | ação do motor | `line` (start, recursos, finalização...) |
+
+O envio inicial já vem com o status atual + últimas N linhas de console, então o painel
+abre preenchido. A conexão recebe `: ping` a cada 15s pra proxies não cortarem, e o
+cliente reconecta sozinho (`retry: 3000`).
+
+No browser (EventSource não aceita header custom → token via query):
+
+```js
+const es = new EventSource(`/api/servers/${id}/events?access_token=${token}`);
+es.addEventListener("log",   e => console.log(JSON.parse(e.data).line));
+es.addEventListener("status",e => atualizarBotao(JSON.parse(e.data).running));
+```
+
+> O GET `/api/servers/{id}/console` continua existindo como fallback.
 
 ## IP dedicado e porta personalizada
 
@@ -189,6 +226,8 @@ cria os servidores, e o SFTP do usuário funciona em qualquer motor — a senha 
 | DELETE | `/api/servers/{id}` | deletar (para processo, apaga pasta e backups) |
 | POST | `/api/servers/{id}/start` · `/stop` · `/restart` | ciclo de vida |
 | GET | `/api/servers/{id}/console?lines=N` | console (log + eventos do motor) |
+| GET | `/api/servers/{id}/events?lines=N` | **SSE**: status + console ao vivo do servidor |
+| GET | `/api/events` | **SSE**: snapshot + status de todos os servidores |
 | POST | `/api/servers/{id}/console` | comando RCON `{command}` |
 | GET | `/api/servers/{id}/files?path=` | listar arquivos |
 | POST | `/api/servers/{id}/files/mkdir` | criar pasta |
@@ -246,7 +285,8 @@ docs/                  # estudo dos pacotes SA-MP / open.mp
 
 ## Roadmap
 
-- [ ] WebSocket pro console em tempo real
+- [x] Console/status em tempo real via SSE (sem polling)
+- [x] IP dedicado por servidor + porta única por IP
 - [ ] Painel web (o motor já fala o idioma: token, CORS, callback SFTP, IDs externos)
 - [ ] Limites de backup/quota definidos pelo painel por usuário
 - [ ] Landlock + seccomp (jaula de syscall/filesystem)
