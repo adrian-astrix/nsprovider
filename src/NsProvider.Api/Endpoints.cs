@@ -58,7 +58,7 @@ public static class Endpoints
                 var type = ParseType(req.Type);
                 var (mem, cpu, disk) = req.Recursos?.Deconstruct() ?? (null, null, null);
                 var server = manager.Create(userId, type, req.MaxPlayers, req.Name, req.Hostname,
-                    req.Gamemode, req.Announce, req.Id, mem, cpu, disk);
+                    req.Gamemode, req.Announce, req.Id, mem, cpu, disk, req.Ip, req.Port);
                 return Results.Created($"/api/servers/{server.Id}", ServerView(server, manager, includeRcon: true));
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
@@ -87,7 +87,7 @@ public static class Endpoints
             {
                 var (mem, cpu, disk) = req.Recursos?.Deconstruct() ?? (null, null, null);
                 var server = manager.Update(id, req.MaxPlayers, req.Hostname, req.Name,
-                    req.RconPassword, req.Gamemode, req.Announce, mem, cpu, disk);
+                    req.RconPassword, req.Gamemode, req.Announce, mem, cpu, disk, req.Ip, req.Port);
                 return Results.Ok(ServerView(server, manager, includeRcon: true));
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
@@ -320,6 +320,14 @@ public static class Endpoints
         });
     }
 
+    public static void MapNetwork(WebApplication app)
+    {
+        var network = app.Services.GetRequiredService<NetworkService>();
+
+        // IPs da máquina + uso: qual IP tem quais servidores/portas
+        app.MapGet("/api/network", () => Results.Ok(network.List()));
+    }
+
     public static void MapStats(WebApplication app)
     {
         var stats = app.Services.GetRequiredService<SystemStatsService>();
@@ -424,6 +432,7 @@ public static class Endpoints
         s.Announce,
         s.CreatedAt,
         s.UpdatedAt,
+        ip = string.IsNullOrWhiteSpace(s.BindIp) ? "0.0.0.0" : s.BindIp,
         recursos = new
         {
             diskQuotaMb = s.DiskMb ?? DiskQuotaService.DiskMb,
@@ -446,6 +455,7 @@ public static class Endpoints
         s.Announce,
         s.CreatedAt,
         s.UpdatedAt,
+        ip = string.IsNullOrWhiteSpace(s.BindIp) ? "0.0.0.0" : s.BindIp,
         status = manager.Processes.GetStatus(s.Id),
         recursos = new
         {
@@ -463,8 +473,8 @@ public sealed record RecursosRequest(int? MemoryMb, double? CpuCores, int? DiskM
 {
     public (int?, double?, int?) Deconstruct() => (MemoryMb, CpuCores, DiskMb);
 }
-public sealed record CreateServerRequest(string Type, int MaxPlayers, string? Name, string? Hostname, string? Gamemode, bool Announce = false, Guid? Id = null, RecursosRequest? Recursos = null);
-public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, string? Name, string? RconPassword, string? Gamemode, bool? Announce, RecursosRequest? Recursos = null);
+public sealed record CreateServerRequest(string Type, int MaxPlayers, string? Name, string? Hostname, string? Gamemode, bool Announce = false, Guid? Id = null, RecursosRequest? Recursos = null, string? Ip = null, int? Port = null);
+public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, string? Name, string? RconPassword, string? Gamemode, bool? Announce, RecursosRequest? Recursos = null, string? Ip = null, int? Port = null);
 public sealed record ConsoleCommandRequest(string? Command);
 public sealed record MkdirRequest(string? Path);
 public sealed record RenameRequest(string? From, string? To);

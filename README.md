@@ -63,6 +63,7 @@ de recursos — **sem Docker, sem senha de usuário armazenada, sem dependência
 | 🖥️ **Console real** | leitura do log do jogo + eventos do motor + comandos via **RCON UDP** (protocolo legacy de 11 bytes) |
 | 📁 **Arquivos** | listar, criar pasta, renomear, deletar, upload, download — path traversal bloqueado |
 | 🔐 **SFTP embutido** | porta 8821, chroot por usuário, senha validada **no painel web** (nada armazenado no motor) |
+| 🌐 **IP dedicado** | cada servidor pode escutar num IPv4 próprio — **dois clientes usam 7777 em IPs diferentes**; porta personalizada por servidor |
 | 💾 **Backups** | por servidor, `tar.gz`, com restore, download, delete e limites (`NSP_BACKUP_MAX_MB`/`MAX_COUNT`) |
 | 📊 **Stats da máquina** | CPU (modelo, cores, threads, uso), memória, disco e servidores (total × rodando) |
 | ⚙️ **Limites sem Docker** | cgroups v2: memória, CPU e nº de processos por servidor |
@@ -105,6 +106,38 @@ curl -X PATCH -H "Content-Type: application/json" -H "X-Api-Key: $TOKEN" \
 curl -X POST -H "X-Api-Key: $TOKEN" http://127.0.0.1:8383/api/servers/{serverId}/backups
 ```
 
+## IP dedicado e porta personalizada
+
+O caso clássico de hospedagem: o cliente compra um **IPv4 extra** pra VPS e quer rodar o
+servidor dele no `7777` — mesmo que outro cliente já use `7777` no IP principal.
+
+- A **porta é única por IP** (não global): `203.0.113.10:7777` e `203.0.113.11:7777` convivem
+- Cada servidor ganha `ip` (IPv4 local da máquina) e `port`; sem `ip` = `0.0.0.0` (compartilhado)
+- Porta personalizada: qualquer porta `1024–65535`, livre naquele IP e fora das portas do motor
+- O jogo escuta só naquele IP (`bind` no SA-MP, `network.bind` no open.mp) — RCON idem
+- Troca de IP/porta exige o servidor **parado** (o jogo lê isso só no boot)
+
+```bash
+# 1) adicionar o IPv4 na VPS (feito uma vez, quando o cliente compra)
+ip addr add 203.0.113.10/32 dev eth0
+
+# 2) ver os IPs disponíveis e o uso de cada um
+curl -H "X-Api-Key: $TOKEN" http://127.0.0.1:8383/api/network
+
+# 3) servidor do cliente VIP no IP dedicado, porta 7777 (mesmo com outro 7777 no IP principal)
+curl -X POST -H "Content-Type: application/json" -H "X-Api-Key: $TOKEN" \
+  -d '{"type":"samp","maxPlayers":64,"ip":"203.0.113.10","port":7777}' \
+  http://127.0.0.1:8383/api/users/{userId}/servers
+
+# 4) mudar IP/porta depois (com servidor parado) — "" volta pro compartilhado
+curl -X PATCH -H "Content-Type: application/json" -H "X-Api-Key: $TOKEN" \
+  -d '{"ip":"203.0.113.11","port":8888}' http://127.0.0.1:8383/api/servers/{serverId}
+```
+
+> Sem NAT: o IP precisa estar de fato na interface da VPS. O motor valida com um bind real
+> antes de aceitar (`O IP X não pertence a esta máquina` se não estiver). `NSP_IPS="ip1,ip2"`
+> força a lista quando a detecção automática não serve.
+
 ## Integração painel web ↔ motor (estilo wings)
 
 Um painel web controla **vários motores** (uma VPS = um motor). Cada motor é configurado
@@ -145,13 +178,14 @@ cria os servidores, e o SFTP do usuário funciona em qualquer motor — a senha 
 |---|---|---|
 | GET | `/health` | status do motor (aberto, sem token) |
 | GET | `/api/stats` | **estatísticas**: CPU (modelo/cores/threads/uso), memória, disco, servidores total × rodando |
+| GET | `/api/network` | **IPv4 da máquina**: uso por IP (servidores/portas) + portas reservadas |
 | POST | `/api/users` | criar usuário **sem senha** `{name, id?}` (id = UUID do painel) |
 | GET | `/api/users` · `/api/users/{id}` | listar / detalhar |
 | DELETE | `/api/users/{id}` | deletar usuário |
-| POST | `/api/users/{userId}/servers` | criar servidor (aceita `id` do painel) |
+| POST | `/api/users/{userId}/servers` | criar servidor (aceita `id`, `ip` e `port` do painel) |
 | GET | `/api/users/{userId}/servers` · `/api/servers` | listar |
-| GET | `/api/servers/{id}` | detalhe + status + recursos |
-| PATCH | `/api/servers/{id}` | atualizar slots/hostname/rcon/gamemode |
+| GET | `/api/servers/{id}` | detalhe + status + recursos + IP |
+| PATCH | `/api/servers/{id}` | atualizar slots/hostname/rcon/gamemode/**recursos**/**ip/porta** |
 | DELETE | `/api/servers/{id}` | deletar (para processo, apaga pasta e backups) |
 | POST | `/api/servers/{id}/start` · `/stop` · `/restart` | ciclo de vida |
 | GET | `/api/servers/{id}/console?lines=N` | console (log + eventos do motor) |
@@ -184,6 +218,7 @@ Variáveis de ambiente:
 | `NSP_BACKUP_MAX_COUNT` | `5` | backups por servidor |
 | `NSP_MEM_MB` / `NSP_CPU_CORES` / `NSP_PIDS_MAX` | `1024` / `1` / `200` | limites cgroup por servidor |
 | `NSP_DISK_MB` / `NSP_DISK_CHECK_SECS` | `5120` / `60` | quota de disco + intervalo do watchdog |
+| `NSP_IPS` | *(auto)* | lista de IPv4 da máquina (`ip1,ip2`) quando a detecção automática não serve |
 
 </details>
 

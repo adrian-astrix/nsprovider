@@ -34,6 +34,9 @@ public sealed class GameServer
     public int? MemoryMb { get; set; }
     public double? CpuCores { get; set; }
     public int? DiskMb { get; set; }
+
+    /// <summary>IPv4 local em que o jogo escuta (null/vazio = 0.0.0.0, IP compartilhado).</summary>
+    public string? BindIp { get; set; }
 }
 
 public sealed class ServerProcessStatus

@@ -74,7 +74,6 @@ public sealed class Database
                 created_at    TEXT NOT NULL,
                 updated_at    TEXT NOT NULL
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS ix_servers_port ON servers(port);
             CREATE INDEX IF NOT EXISTS ix_servers_user ON servers(user_id);
             CREATE TABLE IF NOT EXISTS backups (
                 id          TEXT PRIMARY KEY,
@@ -96,6 +95,12 @@ public sealed class Database
         try { conn.Execute("ALTER TABLE servers ADD COLUMN cpu_cores REAL"); }
         catch (SqliteException) { }
         try { conn.Execute("ALTER TABLE servers ADD COLUMN disk_mb INTEGER"); }
+        catch (SqliteException) { }
+        try { conn.Execute("ALTER TABLE servers ADD COLUMN bind_ip TEXT"); }
+        catch (SqliteException) { }
+        // porta agora é única POR IP (dois servidores podem usar 7777 em IPs diferentes)
+        try { conn.Execute("DROP INDEX IF EXISTS ix_servers_port"); } catch (SqliteException) { }
+        try { conn.Execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_servers_ip_port ON servers(COALESCE(bind_ip, ''), port)"); }
         catch (SqliteException) { }
     }
 }

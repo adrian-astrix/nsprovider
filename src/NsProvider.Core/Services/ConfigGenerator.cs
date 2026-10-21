@@ -20,13 +20,15 @@ public static class ConfigGenerator
 
     private static void WriteSamp(GameServer s, string serverDir)
     {
+        // bind: IP dedicado do cliente (sem bind = 0.0.0.0, compartilhado)
+        var bind = string.IsNullOrWhiteSpace(s.BindIp) ? "" : $"bind {s.BindIp}{Environment.NewLine}";
         var cfg = $"""
             echo Executing Server Config...
             lanmode 0
             rcon_password {s.RconPassword}
             maxplayers {s.MaxPlayers}
             port {s.Port}
-            hostname {s.Hostname}
+            {bind}hostname {s.Hostname}
             gamemode0 {s.Gamemode} 1
             filterscripts
             announce {(s.Announce ? 1 : 0)}
@@ -78,6 +80,7 @@ public static class ConfigGenerator
 
         var network = root["network"] ??= new JsonObject();
         network["port"] = s.Port;
+        network["bind"] = s.BindIp ?? ""; // IP dedicado ("" = 0.0.0.0)
 
         // artwork (skins custom) usa a mesma porta por padrão
         if (root["artwork"] is JsonObject artwork)

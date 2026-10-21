@@ -17,6 +17,7 @@ builder.Services.AddSingleton<UserRepository>();
 builder.Services.AddSingleton<ServerRepository>();
 builder.Services.AddSingleton<BackupRepository>();
 builder.Services.AddSingleton<PortAllocator>();
+builder.Services.AddSingleton<NetworkService>();
 builder.Services.AddSingleton<TemplateManager>();
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<ServerManager>();
@@ -106,6 +107,7 @@ Endpoints.MapFiles(app);
 Endpoints.MapTemplates(app);
 Endpoints.MapStats(app);
 Endpoints.MapBackups(app);
+Endpoints.MapNetwork(app);
 
 // SFTP embutido: sobe junto com a API e desce no shutdown
 var sftp = app.Services.GetRequiredService<SftpHost>();

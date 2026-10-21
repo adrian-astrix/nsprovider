@@ -27,7 +27,8 @@ public sealed class ServerManager(
 
     public GameServer Create(Guid userId, ServerType type, int maxPlayers,
         string? name, string? hostname, string? gamemode, bool announce, Guid? serverId = null,
-        int? memoryMb = null, double? cpuCores = null, int? diskMb = null)
+        int? memoryMb = null, double? cpuCores = null, int? diskMb = null,
+        string? bindIp = null, int? port = null)
     {
         var user = _users.GetById(userId)
             ?? throw new InvalidOperationException("Usuário não encontrado.");
@@ -35,6 +36,11 @@ public sealed class ServerManager(
         if (maxPlayers is < 1 or > 1000)
             throw new InvalidOperationException("maxPlayers deve estar entre 1 e 1000.");
         ValidateResources(memoryMb, cpuCores, diskMb);
+
+        var normalizedIp = ValidateBindIp(bindIp);
+        var effectivePort = port is { } p
+            ? ValidateCustomPort(normalizedIp, p)
+            : _ports.Allocate(normalizedIp);
 
         if (!_templates.IsInstalled(type))
             throw new InvalidOperationException(
@@ -60,8 +66,8 @@ public sealed class ServerManager(
             Id = id,
             UserId = userId,
             Type = type,
-            Name = string.IsNullOrWhiteSpace(name) ? $"server-{serverId.ToString()[..8]}" : name.Trim(),
-            Port = _ports.Allocate(),
+            Name = string.IsNullOrWhiteSpace(name) ? $"server-{id.ToString()[..8]}" : name.Trim(),
+            Port = effectivePort,
             MaxPlayers = maxPlayers,
             Hostname = string.IsNullOrWhiteSpace(hostname) ? $"{user.Name}'s {TemplateManager.PackageName(type)} server" : hostname.Trim(),
             RconPassword = GenerateRandomPassword(),
@@ -70,6 +76,7 @@ public sealed class ServerManager(
             MemoryMb = memoryMb,
             CpuCores = cpuCores,
             DiskMb = diskMb,
+            BindIp = normalizedIp == "" ? null : normalizedIp,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -85,10 +92,18 @@ public sealed class ServerManager(
 
     public GameServer Update(Guid serverId, int? maxPlayers, string? hostname, string? name,
         string? rconPassword, string? gamemode, bool? announce,
-        int? memoryMb = null, double? cpuCores = null, int? diskMb = null)
+        int? memoryMb = null, double? cpuCores = null, int? diskMb = null,
+        string? bindIp = null, int? port = null)
     {
         var server = _servers.GetById(serverId)
             ?? throw new InvalidOperationException("Servidor não encontrado.");
+
+        // troca de IP/porta exige servidor parado (o jogo só lê esses valores no boot)
+        var newIp = bindIp is null ? ServerRepository.NormalizeIp(server.BindIp) : ValidateBindIp(bindIp);
+        var newPort = port ?? server.Port;
+        var networkChanged = newIp != ServerRepository.NormalizeIp(server.BindIp) || newPort != server.Port;
+        if (networkChanged && _processes.IsRunning(serverId))
+            throw new InvalidOperationException("Pare o servidor antes de trocar IP ou porta.");
 
         if (maxPlayers is { } mp)
         {
@@ -100,6 +115,17 @@ public sealed class ServerManager(
         if (name is not null && name.Trim().Length > 0) server.Name = name.Trim();
         if (rconPassword is not null && rconPassword.Length > 0) server.RconPassword = rconPassword;
         if (announce is { } ann) server.Announce = ann;
+
+        if (networkChanged)
+        {
+            if (port is not null) ValidateCustomPort(newIp, port.Value, serverId);
+            if (newIp != ServerRepository.NormalizeIp(server.BindIp)
+                && _ports.IsPortAvailable(newIp, newPort) == false)
+                throw new InvalidOperationException(
+                    $"A porta {newPort} já está em uso no IP {(newIp == "" ? "compartilhado (0.0.0.0)" : newIp)}.");
+            server.BindIp = newIp == "" ? null : newIp;
+            server.Port = newPort;
+        }
 
         // recursos (cpu, memória, disco) — aplica ao vivo se estiver rodando
         bool recursosMudou = false;
@@ -160,6 +186,38 @@ public sealed class ServerManager(
             throw new InvalidOperationException("cpuCores deve estar entre 0.1 e 256.");
         if (diskMb is { } disk && disk is < 50 or > 10_485_760)
             throw new InvalidOperationException("diskMb deve estar entre 50 e 10485760 (10TB).");
+    }
+
+    /// <summary>Valida IP dedicado: precisa ser IPv4 local da máquina ("" = compartilhado).</summary>
+    private static string ValidateBindIp(string? bindIp)
+    {
+        var ip = ServerRepository.NormalizeIp(bindIp);
+        if (ip == "") return "";
+        if (!NetworkService.IsValidIpv4(ip))
+            throw new InvalidOperationException($"IP inválido: '{ip}'. Use um IPv4 (ex.: 203.0.113.10).");
+        if (!NetworkService.IsLocalIp(ip))
+            throw new InvalidOperationException(
+                $"O IP {ip} não pertence a esta máquina. Adicione o IPv4 na VPS antes de usá-lo (GET /api/network lista os IPs).");
+        return ip;
+    }
+
+    /// <summary>Porta personalizada: 1024-65535, fora das portas do motor, livre no IP.</summary>
+    private int ValidateCustomPort(string bindIp, int port, Guid? ignoreServerId = null)
+    {
+        if (port is < 1024 or > 65535)
+            throw new InvalidOperationException("A porta deve estar entre 1024 e 65535.");
+        if (NetworkService.ReservedPorts().Contains(port))
+            throw new InvalidOperationException($"A porta {port} é reservada pelo motor.");
+        var ipTaken = _servers.ListAll().Any(s =>
+            s.Id != ignoreServerId &&
+            ServerRepository.NormalizeIp(s.BindIp) == bindIp &&
+            s.Port == port);
+        if (ipTaken)
+            throw new InvalidOperationException(
+                $"A porta {port} já está em uso no IP {(bindIp == "" ? "compartilhado (0.0.0.0)" : bindIp)}.");
+        if (!_ports.IsPortAvailable(bindIp, port))
+            throw new InvalidOperationException($"A porta UDP {port} está ocupada no sistema operacional.");
+        return port;
     }
 
     public void Delete(Guid serverId)
@@ -237,7 +295,9 @@ public sealed class ServerManager(
         var server = _servers.GetById(serverId)
             ?? throw new InvalidOperationException("Servidor não encontrado.");
 
-        var rconResponse = RconClient.Send("127.0.0.1", server.Port, server.RconPassword, command);
+        // se o servidor tem IP dedicado, o RCON vai naquele IP; senão, loopback
+        var host = string.IsNullOrWhiteSpace(server.BindIp) ? "127.0.0.1" : server.BindIp;
+        var rconResponse = RconClient.Send(host, server.Port, server.RconPassword, command);
         return (true, rconResponse);
     }
 
