@@ -93,6 +93,17 @@ public static class Endpoints
             try { return Results.Ok(usage.Get(id)); }
             catch (InvalidOperationException ex) { return Results.NotFound(new { error = ex.Message }); }
         });
+
+        app.MapPost("/api/servers/{id:guid}/reinstall", (Guid id, ReinstallRequest req) =>
+        {
+            try
+            {
+                var server = manager.Reinstall(id, req.DeleteFiles);
+                return Results.Ok(new { reinstalled = true, deleteFiles = req.DeleteFiles });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (UnauthorizedAccessException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
         app.MapPatch("/api/servers/{id:guid}", (Guid id, UpdateServerRequest req) =>
         {
             try
@@ -550,6 +561,7 @@ public sealed record RecursosRequest(int? MemoryMb, double? CpuCores, int? DiskM
 public sealed record CreateServerRequest(string Type, int MaxPlayers, string? Name, string? Hostname, string? Gamemode, bool Announce = false, Guid? Id = null, RecursosRequest? Recursos = null, string? Ip = null, int? Port = null);
 public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, string? Name, string? RconPassword, string? Gamemode, bool? Announce, RecursosRequest? Recursos = null, string? Ip = null, int? Port = null);
 public sealed record ConsoleCommandRequest(string? Command);
+public sealed record ReinstallRequest(bool DeleteFiles);
 public sealed record MkdirRequest(string? Path);
 public sealed record RenameRequest(string? From, string? To);
 

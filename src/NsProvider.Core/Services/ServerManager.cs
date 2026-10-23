@@ -239,6 +239,45 @@ public sealed class ServerManager(
         if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
     }
 
+    /// <summary>
+    /// Reinstala os arquivos do template no servidor (para o processo antes).
+    /// deleteFiles=true apaga tudo; false apenas substitui os arquivos do template,
+    /// mantendo arquivos extras criados pelo cliente.
+    /// </summary>
+    public GameServer Reinstall(Guid serverId, bool deleteFiles)
+    {
+        var server = _servers.GetById(serverId)
+            ?? throw new InvalidOperationException("Servidor não encontrado.");
+
+        if (!_templates.IsInstalled(server.Type))
+            throw new InvalidOperationException(
+                $"Template '{TemplateManager.PackageName(server.Type)}' não está instalado no motor.");
+
+        if (_processes.IsRunning(serverId))
+            _processes.Stop(serverId);
+
+        var serverDir = AppPaths.ServerDir(server.UserId, serverId);
+        Directory.CreateDirectory(serverDir);
+
+        if (deleteFiles)
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(serverDir))
+            {
+                if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
+                else File.Delete(entry);
+            }
+        }
+
+        // sobrescreve com o template (e recria o server.cfg/config.json com os dados atuais)
+        CopyDirectory(AppPaths.TemplateDir(server.Type), serverDir);
+        ConfigGenerator.Write(server, serverDir);
+
+        var uid = _users.EnsureUid(server.UserId);
+        ChownRecursive(serverDir, uid, uid);
+
+        return server;
+    }
+
     public GameServer Start(Guid serverId)
     {
         var server = _servers.GetById(serverId)

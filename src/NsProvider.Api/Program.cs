@@ -107,7 +107,7 @@ else
     Console.WriteLine("[motor] AVISO: sem NSP_PANEL_TOKEN/NSP_API_KEY — API sem autenticação (modo dev)");
 }
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.4.0" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.4.1" }));
 
 Endpoints.MapUsers(app);
 Endpoints.MapServers(app);

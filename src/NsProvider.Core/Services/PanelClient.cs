@@ -25,6 +25,10 @@ public sealed class PanelClient
     public static string? PanelToken =>
         Environment.GetEnvironmentVariable("NSP_PANEL_TOKEN") is { Length: > 0 } t ? t : null;
 
+    /// <summary>ID deste motor no painel (NSP_MOTOR_ID) — necessário p/ SFTP saber o usuário local.</summary>
+    public static string? MotorId =>
+        Environment.GetEnvironmentVariable("NSP_MOTOR_ID") is { Length: > 0 } m ? m : null;
+
     /// <summary>True quando o motor está integrado a um painel.</summary>
     public bool Enabled => PanelUrl is not null;
 
@@ -48,7 +52,7 @@ public sealed class PanelClient
                 req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
             // StringContent = body com Content-Length (JsonContent ia como chunked)
             req.Content = new StringContent(
-                JsonSerializer.Serialize(new { username, password, ip }),
+                JsonSerializer.Serialize(new { username, password, ip, motor_id = MotorId }),
                 System.Text.Encoding.UTF8, "application/json");
 
             using var resp = await Http.SendAsync(req);
