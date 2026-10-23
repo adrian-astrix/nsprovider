@@ -29,6 +29,7 @@ builder.Services.AddSingleton<SftpHost>();
 builder.Services.AddSingleton<CgroupManager>();
 builder.Services.AddSingleton<DiskQuotaService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DiskQuotaService>());
+builder.Services.AddSingleton<ServerUsageService>();
 builder.Services.AddSingleton<SystemStatsService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SystemStatsService>());
 builder.Services.AddSingleton<BackupService>();
@@ -106,7 +107,7 @@ else
     Console.WriteLine("[motor] AVISO: sem NSP_PANEL_TOKEN/NSP_API_KEY — API sem autenticação (modo dev)");
 }
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.3.0" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", motor = "nsprovider", versao = "0.4.0" }));
 
 Endpoints.MapUsers(app);
 Endpoints.MapServers(app);

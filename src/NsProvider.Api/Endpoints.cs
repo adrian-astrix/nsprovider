@@ -52,6 +52,10 @@ public static class Endpoints
         var manager = app.Services.GetRequiredService<ServerManager>();
         var servers = app.Services.GetRequiredService<ServerRepository>();
         var users = app.Services.GetRequiredService<UserRepository>();
+        var usage = app.Services.GetRequiredService<ServerUsageService>();
+
+        // consumo ao vivo (CPU/RAM/disco/PIDs) de todos os servidores
+        app.MapGet("/api/servers/usage", () => Results.Ok(usage.ListAll()));
 
         app.MapPost("/api/users/{userId:guid}/servers", (Guid userId, CreateServerRequest req) =>
         {
@@ -82,6 +86,12 @@ public static class Endpoints
             if (s is null) return Results.NotFound(new { error = "Servidor não encontrado." });
             var disk = app.Services.GetRequiredService<DiskQuotaService>();
             return Results.Ok(ServerViewDetailed(s, manager, disk));
+        });
+
+        app.MapGet("/api/servers/{id:guid}/stats", (Guid id) =>
+        {
+            try { return Results.Ok(usage.Get(id)); }
+            catch (InvalidOperationException ex) { return Results.NotFound(new { error = ex.Message }); }
         });
         app.MapPatch("/api/servers/{id:guid}", (Guid id, UpdateServerRequest req) =>
         {

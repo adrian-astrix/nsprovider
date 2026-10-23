@@ -47,7 +47,7 @@ public sealed class SystemStatsService(
         return new
         {
             motor = "nsprovider",
-            versao = "0.2.0",
+            versao = "0.4.0",
             uptimeSeconds = (long)(DateTime.UtcNow - ProcessStartTimeUtc).TotalSeconds,
             processador = CpuInfo(),
             memoria = MemoryInfo(),
