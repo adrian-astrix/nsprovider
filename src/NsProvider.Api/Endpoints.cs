@@ -1,3 +1,5 @@
+using System.Formats.Tar;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.Http.Json;
@@ -292,6 +294,121 @@ public static class Endpoints
             catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
             { return Results.BadRequest(new { error = ex.Message }); }
         });
+
+        // ---- ações em massa ----
+        app.MapPost("/api/servers/{id:guid}/files/delete", (Guid id, FileBulkDeleteRequest req) =>
+        {
+            try
+            {
+                var server = servers.GetById(id)
+                    ?? throw new InvalidOperationException("Servidor não encontrado.");
+                var root = Path.GetFullPath(AppPaths.ServerDir(server.UserId, id));
+                var paths = req.Paths?.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToList() ?? [];
+                if (paths.Count == 0)
+                    return Results.BadRequest(new { error = "Selecione pelo menos um arquivo/pasta." });
+
+                var deleted = 0;
+                foreach (var virtualPath in paths)
+                {
+                    var (physical, _) = ResolvePath(servers, id, virtualPath);
+                    if (Path.GetFullPath(physical) == root) continue; // nunca apagar a raiz
+                    if (Directory.Exists(physical)) Directory.Delete(physical, true);
+                    else if (File.Exists(physical)) File.Delete(physical);
+                    else continue;
+                    deleted++;
+                }
+                return Results.Ok(new { deleted });
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+            { return Results.BadRequest(new { error = ex.Message }); }
+            catch (IOException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/servers/{id:guid}/files/compress", async (Guid id, FileCompressRequest req) =>
+        {
+            string? temp = null;
+            try
+            {
+                var server = servers.GetById(id)
+                    ?? throw new InvalidOperationException("Servidor não encontrado.");
+                var root = Path.GetFullPath(AppPaths.ServerDir(server.UserId, id));
+                var paths = req.Paths?.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToList() ?? [];
+                if (paths.Count == 0)
+                    return Results.BadRequest(new { error = "Selecione pelo menos um arquivo/pasta." });
+                if (string.IsNullOrWhiteSpace(req.Archive))
+                    return Results.BadRequest(new { error = "Informe o nome do arquivo compactado." });
+
+                var (archivePath, _) = ResolvePath(servers, id, req.Archive);
+                var archiveFull = Path.GetFullPath(archivePath);
+                if (File.Exists(archiveFull) || Directory.Exists(archiveFull))
+                    return Results.Conflict(new { error = "Já existe um arquivo/pasta com esse nome." });
+
+                var isTarGz = archiveFull.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase);
+                if (!isTarGz && !archiveFull.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    return Results.BadRequest(new { error = "Use extensão .zip ou .tar.gz." });
+
+                var entries = new List<(string Physical, string Name)>();
+                foreach (var virtualPath in paths)
+                {
+                    var (physical, _) = ResolvePath(servers, id, virtualPath);
+                    var physicalFull = Path.GetFullPath(physical);
+                    if (physicalFull == root) continue;
+
+                    if (Directory.Exists(physical))
+                    {
+                        if (archiveFull.StartsWith(physicalFull + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                            return Results.BadRequest(new { error = "O arquivo compactado não pode ficar dentro de uma pasta selecionada." });
+
+                        var dirName = Path.GetFileName(physical.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                        foreach (var file in Directory.EnumerateFiles(physical, "*", SearchOption.AllDirectories))
+                        {
+                            var rel = Path.GetRelativePath(physical, file).Replace('\\', '/');
+                            entries.Add((file, $"{dirName}/{rel}"));
+                        }
+                    }
+                    else if (File.Exists(physical))
+                    {
+                        entries.Add((physical, Path.GetFileName(physical)));
+                    }
+                }
+
+                if (entries.Count == 0)
+                    return Results.BadRequest(new { error = "Nada para compactar." });
+
+                Directory.CreateDirectory(Path.GetDirectoryName(archiveFull)!);
+                temp = archiveFull + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+
+                if (isTarGz)
+                {
+                    await using var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write);
+                    await using var gzip = new GZipStream(fs, CompressionLevel.Optimal);
+                    using var tar = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true);
+                    foreach (var entry in entries)
+                        tar.WriteEntry(entry.Physical, entry.Name);
+                }
+                else
+                {
+                    using var zip = ZipFile.Open(temp, ZipArchiveMode.Create);
+                    foreach (var entry in entries)
+                        zip.CreateEntryFromFile(entry.Physical, entry.Name, CompressionLevel.Optimal);
+                }
+
+                File.Move(temp, archiveFull, overwrite: false);
+                temp = null;
+                var size = new FileInfo(archiveFull).Length;
+                return Results.Ok(new { created = req.Archive, files = entries.Count, sizeBytes = size });
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+            { return Results.BadRequest(new { error = ex.Message }); }
+            catch (IOException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            finally
+            {
+                if (temp is not null && File.Exists(temp))
+                {
+                    try { File.Delete(temp); } catch { }
+                }
+            }
+        });
     }
 
     public static void MapTemplates(WebApplication app)
@@ -563,6 +680,8 @@ public sealed record UpdateServerRequest(int? MaxPlayers, string? Hostname, stri
 public sealed record ConsoleCommandRequest(string? Command);
 public sealed record ReinstallRequest(bool DeleteFiles);
 public sealed record MkdirRequest(string? Path);
+public sealed record FileBulkDeleteRequest(List<string>? Paths);
+public sealed record FileCompressRequest(List<string>? Paths, string? Archive);
 public sealed record RenameRequest(string? From, string? To);
 
 /// <summary>
