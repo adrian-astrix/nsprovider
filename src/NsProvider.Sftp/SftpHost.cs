@@ -26,8 +26,9 @@ public sealed class SftpHost : IAsyncDisposable
     private SshServer? _server;
     private bool _noPanelWarned;
 
-    /// <summary>username → userId validado pelo painel nesta sessão do motor.</summary>
-    private readonly ConcurrentDictionary<string, Guid> _authCache = new();
+    /// <summary>username SFTP → usuário e servidor validados pelo painel.</summary>
+    private sealed record AuthEntry(Guid UserId, Guid? ServerId);
+    private readonly ConcurrentDictionary<string, AuthEntry> _authCache = new();
 
     public SftpHost(UserRepository users, PanelClient panel)
     {
@@ -80,7 +81,7 @@ public sealed class SftpHost : IAsyncDisposable
                         .GetAwaiter().GetResult();
                     if (result is null) { e.Result = false; return; }
 
-                    _authCache[e.Username] = result.UserId;
+                    _authCache[e.Username] = new AuthEntry(result.UserId, result.ServerId);
                     // usuário autorizado pelo painel mas ainda sem registro local → cria (id do painel)
                     if (_users.GetById(result.UserId) is null)
                         _users.Create(result.Name, result.UserId);
@@ -98,15 +99,25 @@ public sealed class SftpHost : IAsyncDisposable
                 {
                     if (e.Name != "sftp") return;
                     var username = e.AttachedUserAuthArgs.Username;
-                    var userId = _users.GetByName(username)?.Id
-                        ?? (_authCache.TryGetValue(username, out var cached) ? cached : null);
+                    var cached = _authCache.TryGetValue(username, out var entry) ? entry : null;
+                    var userId = cached?.UserId ?? _users.GetByName(username)?.Id;
                     if (userId is null) return;
 
-                    var root = AppPaths.UserDir(userId.Value);
-                    Directory.CreateDirectory(root);
+                    // servidor específico → chroot direto na pasta daquele servidor
+                    string root;
+                    if (cached?.ServerId is { } serverId)
+                    {
+                        root = AppPaths.ServerDir(userId.Value, serverId);
+                        if (!Directory.Exists(root)) { e.Agreed = false; return; }
+                    }
+                    else
+                    {
+                        root = AppPaths.UserDir(userId.Value);
+                        Directory.CreateDirectory(root);
+                    }
 
                     e.Agreed = true;
-                    var sftp = new SftpService(root); // chroot: "/" do cliente = pasta do usuário
+                    var sftp = new SftpService(root); // "/" = pasta do servidor (ou do usuário, legado)
                     sftp.Attach(e.Channel);
                 };
             }

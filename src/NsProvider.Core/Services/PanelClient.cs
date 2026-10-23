@@ -32,7 +32,7 @@ public sealed class PanelClient
     /// <summary>True quando o motor está integrado a um painel.</summary>
     public bool Enabled => PanelUrl is not null;
 
-    public sealed record SftpAuthResult(Guid UserId, string Name);
+    public sealed record SftpAuthResult(Guid UserId, string Name, Guid? ServerId);
 
     /// <summary>
     /// Valida credenciais SFTP no painel:
@@ -67,7 +67,16 @@ public sealed class PanelClient
 
             var name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
                 ? n.GetString() : null;
-            return new SftpAuthResult(parsed, name ?? username);
+
+            Guid? serverId = null;
+            if (root.TryGetProperty("server_id", out var sid) && sid.ValueKind == JsonValueKind.String &&
+                Guid.TryParse(sid.GetString(), out var parsedServer))
+                serverId = parsedServer;
+            else if (root.TryGetProperty("serverId", out var sid2) && sid2.ValueKind == JsonValueKind.String &&
+                     Guid.TryParse(sid2.GetString(), out var parsedServer2))
+                serverId = parsedServer2;
+
+            return new SftpAuthResult(parsed, name ?? username, serverId);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
